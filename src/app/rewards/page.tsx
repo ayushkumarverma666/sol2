@@ -4,121 +4,219 @@ import { Navigation } from '@/components/layout/Navigation';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Progress } from '@/components/ui/progress';
-import { useWallet } from '@solana/wallet-adapter-react';
-import { Gift, Wallet, Zap, CheckCircle, Star } from 'lucide-react';
-import { useState } from 'react';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { useWallet, useConnection } from '@solana/wallet-adapter-react';
+import { LAMPORTS_PER_SOL, PublicKey, Transaction, SystemProgram } from '@solana/web3.js';
+import { Gift, Wallet, Zap, Star, Users, ShoppingCart, CreditCard, Coins, TrendingUp } from 'lucide-react';
+import { useState, useEffect } from 'react';
 import { toast } from 'sonner';
 
 interface Reward {
   id: string;
-  name: string;
+  title: string;
   description: string;
+  category: string;
   cost: number;
   image: string;
-  category: string;
-  popular: boolean;
   available: boolean;
+  popular: boolean;
+  redemptionType: 'gift_card' | 'subscription' | 'merchandise' | 'crypto';
 }
-
-interface UserStats {
-  totalEarned: number;
-  totalRedeemed: number;
-  availableBalance: number;
-  tasksCompleted: number;
-  rewardsRedeemed: number;
-}
-
-const mockRewards: Reward[] = [
-  {
-    id: '1',
-    name: 'Netflix Gift Card',
-    description: '1 month subscription to Netflix Premium',
-    cost: 0.5,
-    image: '🎬',
-    category: 'Streaming',
-    popular: true,
-    available: true,
-  },
-  {
-    id: '2',
-    name: 'Spotify Premium',
-    description: '1 month subscription to Spotify Premium',
-    cost: 0.3,
-    image: '🎵',
-    category: 'Music',
-    popular: true,
-    available: true,
-  },
-  {
-    id: '3',
-    name: 'ChatGPT Plus',
-    description: '1 month subscription to ChatGPT Plus',
-    cost: 0.4,
-    image: '🤖',
-    category: 'Productivity',
-    popular: false,
-    available: true,
-  },
-  {
-    id: '4',
-    name: 'YouTube Premium',
-    description: '1 month subscription to YouTube Premium',
-    cost: 0.35,
-    image: '📺',
-    category: 'Streaming',
-    popular: false,
-    available: true,
-  },
-  {
-    id: '5',
-    name: 'Discord Nitro',
-    description: '1 month subscription to Discord Nitro',
-    cost: 0.2,
-    image: '💬',
-    category: 'Gaming',
-    popular: false,
-    available: true,
-  },
-  {
-    id: '6',
-    name: 'GitHub Pro',
-    description: '1 month subscription to GitHub Pro',
-    cost: 0.6,
-    image: '💻',
-    category: 'Development',
-    popular: false,
-    available: true,
-  },
-];
-
-const mockUserStats: UserStats = {
-  totalEarned: 2.45,
-  totalRedeemed: 1.2,
-  availableBalance: 1.25,
-  tasksCompleted: 8,
-  rewardsRedeemed: 3,
-};
 
 export default function RewardsPage() {
-  const { connected } = useWallet();
-  const [userStats] = useState<UserStats>(mockUserStats);
-  const [rewards] = useState<Reward[]>(mockRewards);
-  const [selectedCategory, setSelectedCategory] = useState('All');
+  const { publicKey, connected, sendTransaction } = useWallet();
+  const { connection } = useConnection();
+  const [rewards, setRewards] = useState<Reward[]>([]);
+  const [userBalance, setUserBalance] = useState(0);
+  const [isLoading, setIsLoading] = useState(false);
+  const [selectedReward, setSelectedReward] = useState<Reward | null>(null);
+  const [redemptionAmount, setRedemptionAmount] = useState('');
+  const [isRedeeming, setIsRedeeming] = useState(false);
 
-  const categories = ['All', 'Streaming', 'Music', 'Productivity', 'Gaming', 'Development'];
-
-  const handleRedeem = (reward: Reward) => {
-    if (userStats.availableBalance < reward.cost) {
-      toast.error('Insufficient balance. Complete more tasks to earn SOL.');
-      return;
+  // Sample rewards data
+  const sampleRewards: Reward[] = [
+    {
+      id: '1',
+      title: 'Netflix Gift Card',
+      description: '1 month subscription to Netflix streaming service',
+      category: 'Entertainment',
+      cost: 0.5,
+      image: '/api/placeholder/200/150',
+      available: true,
+      popular: true,
+      redemptionType: 'subscription'
+    },
+    {
+      id: '2',
+      title: 'Amazon Gift Card',
+      description: '$25 Amazon gift card for online shopping',
+      category: 'Shopping',
+      cost: 0.4,
+      image: '/api/placeholder/200/150',
+      available: true,
+      popular: true,
+      redemptionType: 'gift_card'
+    },
+    {
+      id: '3',
+      title: 'Spotify Premium',
+      description: '3 months of Spotify Premium music streaming',
+      category: 'Entertainment',
+      cost: 0.3,
+      image: '/api/placeholder/200/150',
+      available: true,
+      popular: false,
+      redemptionType: 'subscription'
+    },
+    {
+      id: '4',
+      title: 'Starbucks Gift Card',
+      description: '$20 Starbucks gift card for coffee and food',
+      category: 'Food & Beverage',
+      cost: 0.35,
+      image: '/api/placeholder/200/150',
+      available: true,
+      popular: false,
+      redemptionType: 'gift_card'
+    },
+    {
+      id: '5',
+      title: 'Solana Merchandise',
+      description: 'Exclusive Solana branded t-shirt and hoodie',
+      category: 'Merchandise',
+      cost: 0.8,
+      image: '/api/placeholder/200/150',
+      available: true,
+      popular: false,
+      redemptionType: 'merchandise'
+    },
+    {
+      id: '6',
+      title: 'USDC Stablecoin',
+      description: 'Convert your SOL to USDC stablecoin',
+      category: 'Crypto',
+      cost: 0.1,
+      image: '/api/placeholder/200/150',
+      available: true,
+      popular: true,
+      redemptionType: 'crypto'
+    },
+    {
+      id: '7',
+      title: 'Discord Nitro',
+      description: '1 month Discord Nitro subscription',
+      category: 'Gaming',
+      cost: 0.25,
+      image: '/api/placeholder/200/150',
+      available: true,
+      popular: false,
+      redemptionType: 'subscription'
+    },
+    {
+      id: '8',
+      title: 'Uber Eats Credit',
+      description: '$30 Uber Eats delivery credit',
+      category: 'Food & Beverage',
+      cost: 0.45,
+      image: '/api/placeholder/200/150',
+      available: true,
+      popular: false,
+      redemptionType: 'gift_card'
     }
-    toast.success(`${reward.name} redeemed successfully! Check your email for the gift card.`);
+  ];
+
+  useEffect(() => {
+    setRewards(sampleRewards);
+    if (connected && publicKey) {
+      fetchUserBalance();
+    }
+  }, [connected, publicKey]);
+
+  const fetchUserBalance = async () => {
+    if (!publicKey) return;
+    
+    try {
+      setIsLoading(true);
+      const balance = await connection.getBalance(publicKey);
+      setUserBalance(balance / LAMPORTS_PER_SOL);
+    } catch (error) {
+      console.error('Error fetching balance:', error);
+      toast.error('Failed to fetch balance');
+    } finally {
+      setIsLoading(false);
+    }
   };
 
-  const filteredRewards = selectedCategory === 'All' 
-    ? rewards 
-    : rewards.filter(reward => reward.category === selectedCategory);
+  const handleRewardRedemption = async (reward: Reward) => {
+    if (!connected || !publicKey) {
+      toast.error('Please connect your wallet first');
+      return;
+    }
+
+    if (userBalance < reward.cost) {
+      toast.error('Insufficient balance for this reward');
+      return;
+    }
+
+    setSelectedReward(reward);
+    setRedemptionAmount(reward.cost.toString());
+  };
+
+  const confirmRedemption = async () => {
+    if (!selectedReward || !publicKey) return;
+
+    setIsRedeeming(true);
+    
+    try {
+      // Simulate reward redemption process
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      
+      // In a real application, this would:
+      // 1. Deduct SOL from user's balance
+      // 2. Process the reward (send gift card, activate subscription, etc.)
+      // 3. Update user's reward history
+      
+      toast.success(`🎉 ${selectedReward.title} redeemed successfully!`);
+      
+      // Update user balance
+      setUserBalance(prev => prev - selectedReward.cost);
+      
+      // Close dialog
+      setSelectedReward(null);
+      setRedemptionAmount('');
+      
+    } catch (error) {
+      console.error('Redemption failed:', error);
+      toast.error('Failed to redeem reward. Please try again.');
+    } finally {
+      setIsRedeeming(false);
+    }
+  };
+
+  const getCategoryIcon = (category: string) => {
+    switch (category) {
+      case 'Entertainment': return <Zap className="w-4 h-4" />;
+      case 'Shopping': return <ShoppingCart className="w-4 h-4" />;
+      case 'Food & Beverage': return <Gift className="w-4 h-4" />;
+      case 'Merchandise': return <Star className="w-4 h-4" />;
+      case 'Crypto': return <Coins className="w-4 h-4" />;
+      case 'Gaming': return <Users className="w-4 h-4" />;
+      default: return <Gift className="w-4 h-4" />;
+    }
+  };
+
+  const getRedemptionTypeColor = (type: string) => {
+    switch (type) {
+      case 'gift_card': return 'bg-blue-500';
+      case 'subscription': return 'bg-green-500';
+      case 'merchandise': return 'bg-purple-500';
+      case 'crypto': return 'bg-yellow-500';
+      default: return 'bg-gray-500';
+    }
+  };
 
   if (!connected) {
     return (
@@ -128,12 +226,12 @@ export default function RewardsPage() {
           <div className="max-w-4xl mx-auto text-center">
             <Card className="solana-card border-0">
               <CardContent className="pt-12 pb-12">
-                <Wallet className="w-16 h-16 mx-auto mb-6 text-purple-600" />
+                <Wallet className="w-16 h-16 mx-auto mb-4 text-muted-foreground" />
                 <h2 className="text-2xl font-bold mb-4">Connect Your Wallet</h2>
-                <p className="text-muted-foreground mb-8">
-                  Please connect your Solana wallet to view your rewards and earnings.
+                <p className="text-muted-foreground mb-6">
+                  Connect your Solana wallet to view and redeem available rewards
                 </p>
-                <Button className="solana-gradient text-white">
+                <Button size="lg" className="solana-gradient text-white">
                   <Wallet className="w-5 h-5 mr-2" />
                   Connect Wallet
                 </Button>
@@ -149,150 +247,384 @@ export default function RewardsPage() {
     <div className="min-h-screen bg-gradient-to-br from-background via-background to-purple-50/20">
       <Navigation />
       
-      <div className="pt-24 pb-16 px-4 sm:px-6 lg:px-8">
+      <div className="pt-24 px-4 sm:px-6 lg:px-8">
         <div className="max-w-7xl mx-auto">
           {/* Header */}
-          <div className="text-center mb-12">
-            <h1 className="text-4xl font-bold mb-4">Your Rewards</h1>
-            <p className="text-muted-foreground max-w-2xl mx-auto">
-              Redeem your earned SOL for popular subscription services and gift cards.
+          <div className="text-center mb-8">
+            <h1 className="text-4xl font-bold mb-4">Redeem Your Rewards</h1>
+            <p className="text-xl text-muted-foreground">
+              Convert your earned SOL into amazing rewards and gift cards
             </p>
           </div>
 
-          {/* Stats Cards */}
-          <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6 mb-12">
-            <Card className="solana-card border-0">
-              <CardContent className="pt-6">
-                <div className="flex items-center space-x-2 mb-2">
-                  <Wallet className="w-5 h-5 text-purple-600" />
-                  <span className="text-sm text-muted-foreground">Available Balance</span>
-                </div>
-                <div className="text-2xl font-bold solana-gradient-text">{userStats.availableBalance} SOL</div>
-              </CardContent>
-            </Card>
-
-            <Card className="solana-card border-0">
-              <CardContent className="pt-6">
-                <div className="flex items-center space-x-2 mb-2">
-                  <Zap className="w-5 h-5 text-yellow-500" />
-                  <span className="text-sm text-muted-foreground">Total Earned</span>
-                </div>
-                <div className="text-2xl font-bold solana-gradient-text">{userStats.totalEarned} SOL</div>
-              </CardContent>
-            </Card>
-
-            <Card className="solana-card border-0">
-              <CardContent className="pt-6">
-                <div className="flex items-center space-x-2 mb-2">
-                  <CheckCircle className="w-5 h-5 text-green-500" />
-                  <span className="text-sm text-muted-foreground">Tasks Completed</span>
-                </div>
-                <div className="text-2xl font-bold solana-gradient-text">{userStats.tasksCompleted}</div>
-              </CardContent>
-            </Card>
-
-            <Card className="solana-card border-0">
-              <CardContent className="pt-6">
-                <div className="flex items-center space-x-2 mb-2">
-                  <Gift className="w-5 h-5 text-pink-500" />
-                  <span className="text-sm text-muted-foreground">Rewards Redeemed</span>
-                </div>
-                <div className="text-2xl font-bold solana-gradient-text">{userStats.rewardsRedeemed}</div>
-              </CardContent>
-            </Card>
-          </div>
-
-          {/* Progress Bar */}
-          <Card className="solana-card border-0 mb-12">
+          {/* User Balance */}
+          <Card className="solana-card border-0 mb-8">
             <CardContent className="pt-6">
-              <div className="flex justify-between items-center mb-2">
-                <span className="text-sm font-medium">Progress to Next Reward</span>
-                <span className="text-sm text-muted-foreground">
-                  {userStats.availableBalance.toFixed(2)} / 0.5 SOL
-                </span>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <Wallet className="w-8 h-8 text-purple-600" />
+                  <div>
+                    <div className="text-sm text-muted-foreground">Available Balance</div>
+                    <div className="text-3xl font-bold solana-gradient-text">
+                      {isLoading ? '...' : `${userBalance.toFixed(4)} SOL`}
+                    </div>
+                  </div>
+                </div>
+                <Button variant="outline" onClick={fetchUserBalance} disabled={isLoading}>
+                  <TrendingUp className="w-4 h-4 mr-2" />
+                  Refresh
+                </Button>
               </div>
-              <Progress value={(userStats.availableBalance / 0.5) * 100} className="mb-2" />
-              <p className="text-xs text-muted-foreground">
-                Complete more tasks to unlock higher-tier rewards
-              </p>
             </CardContent>
           </Card>
 
-          {/* Category Filter */}
-          <div className="flex flex-wrap gap-2 justify-center mb-8">
-            {categories.map((category) => (
-              <Button
-                key={category}
-                variant={selectedCategory === category ? "default" : "outline"}
-                onClick={() => setSelectedCategory(category)}
-                className={selectedCategory === category ? "solana-gradient text-white" : ""}
-              >
-                {category}
-              </Button>
-            ))}
-          </div>
-
-          {/* Rewards Grid */}
-          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {filteredRewards.map((reward) => (
-              <Card key={reward.id} className="solana-card border-0 hover:solana-glow transition-all duration-300">
-                <CardHeader>
-                  <div className="flex justify-between items-start mb-2">
-                    {reward.popular && (
-                      <Badge className="bg-yellow-100 text-yellow-800">
-                        <Star className="w-3 h-3 mr-1" />
-                        Popular
-                      </Badge>
-                    )}
-                    <div className="text-2xl">{reward.image}</div>
-                  </div>
-                  <CardTitle className="text-lg">{reward.name}</CardTitle>
-                  <CardDescription>{reward.description}</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <div className="flex items-center justify-between mb-4">
-                    <div className="flex items-center space-x-2">
-                      <Zap className="w-4 h-4 text-yellow-500" />
-                      <span className="font-semibold">{reward.cost} SOL</span>
-                    </div>
-                    <Badge variant="secondary">{reward.category}</Badge>
-                  </div>
-                  
-                  <Button 
-                    onClick={() => handleRedeem(reward)}
-                    disabled={!reward.available || userStats.availableBalance < reward.cost}
-                    className="w-full solana-gradient text-white hover:opacity-90 disabled:opacity-50"
-                  >
-                    <Gift className="w-4 h-4 mr-2" />
-                    {userStats.availableBalance < reward.cost ? 'Insufficient Balance' : 'Redeem Now'}
-                  </Button>
-                </CardContent>
-              </Card>
-            ))}
-          </div>
-
-          {/* Coming Soon */}
-          <div className="mt-16">
-            <Card className="solana-card border-0">
-              <CardContent className="pt-12 pb-12 text-center">
-                <h2 className="text-2xl font-bold mb-4">More Rewards Coming Soon</h2>
-                <p className="text-muted-foreground mb-8 max-w-2xl mx-auto">
-                  We&apos;re constantly adding new subscription services and gift cards. 
-                  Stay tuned for more exciting rewards!
-                </p>
-                <div className="flex flex-wrap gap-4 justify-center">
-                  <Badge variant="outline" className="px-4 py-2">Amazon Prime</Badge>
-                  <Badge variant="outline" className="px-4 py-2">Disney+</Badge>
-                  <Badge variant="outline" className="px-4 py-2">Hulu</Badge>
-                  <Badge variant="outline" className="px-4 py-2">Apple Music</Badge>
-                  <Badge variant="outline" className="px-4 py-2">Adobe Creative Cloud</Badge>
-                  <Badge variant="outline" className="px-4 py-2">Notion Pro</Badge>
-                </div>
-              </CardContent>
-            </Card>
-          </div>
+          {/* Rewards Categories */}
+          <Tabs defaultValue="all" className="w-full">
+            <TabsList className="grid w-full grid-cols-6 mb-8">
+              <TabsTrigger value="all">All</TabsTrigger>
+              <TabsTrigger value="entertainment">Entertainment</TabsTrigger>
+              <TabsTrigger value="shopping">Shopping</TabsTrigger>
+              <TabsTrigger value="food">Food & Beverage</TabsTrigger>
+              <TabsTrigger value="merchandise">Merchandise</TabsTrigger>
+              <TabsTrigger value="crypto">Crypto</TabsTrigger>
+            </TabsList>
+            
+            <TabsContent value="all" className="space-y-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                {rewards.map((reward) => (
+                  <Card key={reward.id} className="solana-card border-0 hover:solana-glow transition-all duration-300">
+                    <CardHeader className="pb-3">
+                      <div className="relative">
+                        <div className="w-full h-32 bg-gradient-to-br from-purple-100 to-blue-100 rounded-lg mb-3 flex items-center justify-center">
+                          {getCategoryIcon(reward.category)}
+                        </div>
+                        {reward.popular && (
+                          <Badge className="absolute top-2 right-2 bg-yellow-500 text-white">
+                            Popular
+                          </Badge>
+                        )}
+                      </div>
+                      <div className="flex items-start justify-between">
+                        <div className="flex items-center gap-2">
+                          {getCategoryIcon(reward.category)}
+                          <Badge variant="secondary" className={getRedemptionTypeColor(reward.redemptionType)}>
+                            {reward.redemptionType.replace('_', ' ')}
+                          </Badge>
+                        </div>
+                        <div className="text-right">
+                          <div className="text-xl font-bold solana-gradient-text">{reward.cost} SOL</div>
+                        </div>
+                      </div>
+                      <CardTitle className="text-lg">{reward.title}</CardTitle>
+                      <CardDescription>{reward.description}</CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      <Button 
+                        onClick={() => handleRewardRedemption(reward)}
+                        disabled={!reward.available || userBalance < reward.cost}
+                        className="w-full solana-gradient text-white"
+                      >
+                        <Gift className="w-4 h-4 mr-2" />
+                        {userBalance < reward.cost ? 'Insufficient Balance' : 'Redeem Now'}
+                      </Button>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            </TabsContent>
+            
+            <TabsContent value="entertainment" className="space-y-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                {rewards.filter(reward => reward.category === 'Entertainment').map((reward) => (
+                  <Card key={reward.id} className="solana-card border-0 hover:solana-glow transition-all duration-300">
+                    <CardHeader className="pb-3">
+                      <div className="relative">
+                        <div className="w-full h-32 bg-gradient-to-br from-purple-100 to-blue-100 rounded-lg mb-3 flex items-center justify-center">
+                          {getCategoryIcon(reward.category)}
+                        </div>
+                        {reward.popular && (
+                          <Badge className="absolute top-2 right-2 bg-yellow-500 text-white">
+                            Popular
+                          </Badge>
+                        )}
+                      </div>
+                      <div className="flex items-start justify-between">
+                        <div className="flex items-center gap-2">
+                          {getCategoryIcon(reward.category)}
+                          <Badge variant="secondary" className={getRedemptionTypeColor(reward.redemptionType)}>
+                            {reward.redemptionType.replace('_', ' ')}
+                          </Badge>
+                        </div>
+                        <div className="text-right">
+                          <div className="text-xl font-bold solana-gradient-text">{reward.cost} SOL</div>
+                        </div>
+                      </div>
+                      <CardTitle className="text-lg">{reward.title}</CardTitle>
+                      <CardDescription>{reward.description}</CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      <Button 
+                        onClick={() => handleRewardRedemption(reward)}
+                        disabled={!reward.available || userBalance < reward.cost}
+                        className="w-full solana-gradient text-white"
+                      >
+                        <Gift className="w-4 h-4 mr-2" />
+                        {userBalance < reward.cost ? 'Insufficient Balance' : 'Redeem Now'}
+                      </Button>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            </TabsContent>
+            
+            <TabsContent value="shopping" className="space-y-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                {rewards.filter(reward => reward.category === 'Shopping').map((reward) => (
+                  <Card key={reward.id} className="solana-card border-0 hover:solana-glow transition-all duration-300">
+                    <CardHeader className="pb-3">
+                      <div className="relative">
+                        <div className="w-full h-32 bg-gradient-to-br from-purple-100 to-blue-100 rounded-lg mb-3 flex items-center justify-center">
+                          {getCategoryIcon(reward.category)}
+                        </div>
+                        {reward.popular && (
+                          <Badge className="absolute top-2 right-2 bg-yellow-500 text-white">
+                            Popular
+                          </Badge>
+                        )}
+                      </div>
+                      <div className="flex items-start justify-between">
+                        <div className="flex items-center gap-2">
+                          {getCategoryIcon(reward.category)}
+                          <Badge variant="secondary" className={getRedemptionTypeColor(reward.redemptionType)}>
+                            {reward.redemptionType.replace('_', ' ')}
+                          </Badge>
+                        </div>
+                        <div className="text-right">
+                          <div className="text-xl font-bold solana-gradient-text">{reward.cost} SOL</div>
+                        </div>
+                      </div>
+                      <CardTitle className="text-lg">{reward.title}</CardTitle>
+                      <CardDescription>{reward.description}</CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      <Button 
+                        onClick={() => handleRewardRedemption(reward)}
+                        disabled={!reward.available || userBalance < reward.cost}
+                        className="w-full solana-gradient text-white"
+                      >
+                        <Gift className="w-4 h-4 mr-2" />
+                        {userBalance < reward.cost ? 'Insufficient Balance' : 'Redeem Now'}
+                      </Button>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            </TabsContent>
+            
+            <TabsContent value="food" className="space-y-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                {rewards.filter(reward => reward.category === 'Food & Beverage').map((reward) => (
+                  <Card key={reward.id} className="solana-card border-0 hover:solana-glow transition-all duration-300">
+                    <CardHeader className="pb-3">
+                      <div className="relative">
+                        <div className="w-full h-32 bg-gradient-to-br from-purple-100 to-blue-100 rounded-lg mb-3 flex items-center justify-center">
+                          {getCategoryIcon(reward.category)}
+                        </div>
+                        {reward.popular && (
+                          <Badge className="absolute top-2 right-2 bg-yellow-500 text-white">
+                            Popular
+                          </Badge>
+                        )}
+                      </div>
+                      <div className="flex items-start justify-between">
+                        <div className="flex items-center gap-2">
+                          {getCategoryIcon(reward.category)}
+                          <Badge variant="secondary" className={getRedemptionTypeColor(reward.redemptionType)}>
+                            {reward.redemptionType.replace('_', ' ')}
+                          </Badge>
+                        </div>
+                        <div className="text-right">
+                          <div className="text-xl font-bold solana-gradient-text">{reward.cost} SOL</div>
+                        </div>
+                      </div>
+                      <CardTitle className="text-lg">{reward.title}</CardTitle>
+                      <CardDescription>{reward.description}</CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      <Button 
+                        onClick={() => handleRewardRedemption(reward)}
+                        disabled={!reward.available || userBalance < reward.cost}
+                        className="w-full solana-gradient text-white"
+                      >
+                        <Gift className="w-4 h-4 mr-2" />
+                        {userBalance < reward.cost ? 'Insufficient Balance' : 'Redeem Now'}
+                      </Button>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            </TabsContent>
+            
+            <TabsContent value="merchandise" className="space-y-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                {rewards.filter(reward => reward.category === 'Merchandise').map((reward) => (
+                  <Card key={reward.id} className="solana-card border-0 hover:solana-glow transition-all duration-300">
+                    <CardHeader className="pb-3">
+                      <div className="relative">
+                        <div className="w-full h-32 bg-gradient-to-br from-purple-100 to-blue-100 rounded-lg mb-3 flex items-center justify-center">
+                          {getCategoryIcon(reward.category)}
+                        </div>
+                        {reward.popular && (
+                          <Badge className="absolute top-2 right-2 bg-yellow-500 text-white">
+                            Popular
+                          </Badge>
+                        )}
+                      </div>
+                      <div className="flex items-start justify-between">
+                        <div className="flex items-center gap-2">
+                          {getCategoryIcon(reward.category)}
+                          <Badge variant="secondary" className={getRedemptionTypeColor(reward.redemptionType)}>
+                            {reward.redemptionType.replace('_', ' ')}
+                          </Badge>
+                        </div>
+                        <div className="text-right">
+                          <div className="text-xl font-bold solana-gradient-text">{reward.cost} SOL</div>
+                        </div>
+                      </div>
+                      <CardTitle className="text-lg">{reward.title}</CardTitle>
+                      <CardDescription>{reward.description}</CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      <Button 
+                        onClick={() => handleRewardRedemption(reward)}
+                        disabled={!reward.available || userBalance < reward.cost}
+                        className="w-full solana-gradient text-white"
+                      >
+                        <Gift className="w-4 h-4 mr-2" />
+                        {userBalance < reward.cost ? 'Insufficient Balance' : 'Redeem Now'}
+                      </Button>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            </TabsContent>
+            
+            <TabsContent value="crypto" className="space-y-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                {rewards.filter(reward => reward.category === 'Crypto').map((reward) => (
+                  <Card key={reward.id} className="solana-card border-0 hover:solana-glow transition-all duration-300">
+                    <CardHeader className="pb-3">
+                      <div className="relative">
+                        <div className="w-full h-32 bg-gradient-to-br from-purple-100 to-blue-100 rounded-lg mb-3 flex items-center justify-center">
+                          {getCategoryIcon(reward.category)}
+                        </div>
+                        {reward.popular && (
+                          <Badge className="absolute top-2 right-2 bg-yellow-500 text-white">
+                            Popular
+                          </Badge>
+                        )}
+                      </div>
+                      <div className="flex items-start justify-between">
+                        <div className="flex items-center gap-2">
+                          {getCategoryIcon(reward.category)}
+                          <Badge variant="secondary" className={getRedemptionTypeColor(reward.redemptionType)}>
+                            {reward.redemptionType.replace('_', ' ')}
+                          </Badge>
+                        </div>
+                        <div className="text-right">
+                          <div className="text-xl font-bold solana-gradient-text">{reward.cost} SOL</div>
+                        </div>
+                      </div>
+                      <CardTitle className="text-lg">{reward.title}</CardTitle>
+                      <CardDescription>{reward.description}</CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      <Button 
+                        onClick={() => handleRewardRedemption(reward)}
+                        disabled={!reward.available || userBalance < reward.cost}
+                        className="w-full solana-gradient text-white"
+                      >
+                        <Gift className="w-4 h-4 mr-2" />
+                        {userBalance < reward.cost ? 'Insufficient Balance' : 'Redeem Now'}
+                      </Button>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            </TabsContent>
+          </Tabs>
         </div>
       </div>
+
+      {/* Redemption Dialog */}
+      <Dialog open={!!selectedReward} onOpenChange={() => setSelectedReward(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Redeem {selectedReward?.title}</DialogTitle>
+            <DialogDescription>
+              Confirm your reward redemption. This action cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="p-4 bg-muted/50 rounded-lg">
+              <div className="flex items-center justify-between mb-2">
+                <span className="font-medium">Reward Cost:</span>
+                <span className="text-lg font-bold solana-gradient-text">{selectedReward?.cost} SOL</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="font-medium">Your Balance:</span>
+                <span className="text-lg font-bold">{userBalance.toFixed(4)} SOL</span>
+              </div>
+              <div className="flex items-center justify-between mt-2 pt-2 border-t">
+                <span className="font-medium">Remaining Balance:</span>
+                <span className="text-lg font-bold text-green-600">
+                  {(userBalance - (selectedReward?.cost || 0)).toFixed(4)} SOL
+                </span>
+              </div>
+            </div>
+            
+            <div className="space-y-2">
+              <Label htmlFor="amount">Redemption Amount (SOL)</Label>
+              <Input
+                id="amount"
+                type="number"
+                value={redemptionAmount}
+                onChange={(e) => setRedemptionAmount(e.target.value)}
+                step="0.001"
+                min="0"
+                max={selectedReward?.cost}
+              />
+            </div>
+            
+            <div className="flex gap-3">
+              <Button 
+                variant="outline" 
+                onClick={() => setSelectedReward(null)}
+                className="flex-1"
+              >
+                Cancel
+              </Button>
+              <Button 
+                onClick={confirmRedemption}
+                disabled={isRedeeming || parseFloat(redemptionAmount) !== selectedReward?.cost}
+                className="flex-1 solana-gradient text-white"
+              >
+                {isRedeeming ? (
+                  <>
+                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                    Processing...
+                  </>
+                ) : (
+                  <>
+                    <Gift className="w-4 h-4 mr-2" />
+                    Confirm Redemption
+                  </>
+                )}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 } 

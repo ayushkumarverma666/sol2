@@ -4,12 +4,37 @@ import { Navigation } from '@/components/layout/Navigation';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { useWallet } from '@solana/wallet-adapter-react';
-import { Wallet, Zap, Gift, Users, TrendingUp, Star } from 'lucide-react';
+import { useWallet, useConnection } from '@solana/wallet-adapter-react';
+import { LAMPORTS_PER_SOL } from '@solana/web3.js';
+import { Wallet, Zap, Gift, Users, TrendingUp, Star, Send, Receive, History, ArrowRight } from 'lucide-react';
 import Link from 'next/link';
+import { useState, useEffect } from 'react';
 
 export default function HomePage() {
-  const { connected } = useWallet();
+  const { connected, publicKey } = useWallet();
+  const { connection } = useConnection();
+  const [balance, setBalance] = useState<number>(0);
+  const [isLoading, setIsLoading] = useState(false);
+
+  useEffect(() => {
+    if (connected && publicKey) {
+      fetchBalance();
+    }
+  }, [connected, publicKey]);
+
+  const fetchBalance = async () => {
+    if (!publicKey) return;
+    
+    try {
+      setIsLoading(true);
+      const balance = await connection.getBalance(publicKey);
+      setBalance(balance / LAMPORTS_PER_SOL);
+    } catch (error) {
+      console.error('Error fetching balance:', error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   const features = [
     {
@@ -39,6 +64,30 @@ export default function HomePage() {
     { label: 'Tasks Completed', value: '15,392', icon: Zap },
     { label: 'SOL Distributed', value: '1,247', icon: Wallet },
     { label: 'Gift Cards Redeemed', value: '892', icon: Gift },
+  ];
+
+  const quickActions = [
+    {
+      icon: Send,
+      title: 'Send SOL',
+      description: 'Transfer SOL to other wallets',
+      href: '/profile',
+      color: 'from-red-500 to-pink-500'
+    },
+    {
+      icon: Receive,
+      title: 'Receive SOL',
+      description: 'Get SOL from other users',
+      href: '/profile',
+      color: 'from-green-500 to-emerald-500'
+    },
+    {
+      icon: History,
+      title: 'Transaction History',
+      description: 'View all your transactions',
+      href: '/profile',
+      color: 'from-blue-500 to-cyan-500'
+    }
   ];
 
   return (
@@ -85,6 +134,63 @@ export default function HomePage() {
           </div>
         </div>
       </section>
+
+      {/* Quick Wallet Overview */}
+      {connected && (
+        <section className="py-8 px-4 sm:px-6 lg:px-8">
+          <div className="max-w-7xl mx-auto">
+            <Card className="solana-card border-0">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Wallet className="w-5 h-5" />
+                  Quick Wallet Overview
+                </CardTitle>
+                <CardDescription>Your wallet status and quick actions</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                  {/* Balance */}
+                  <div className="text-center p-4 bg-muted/30 rounded-lg">
+                    <div className="text-2xl font-bold solana-gradient-text mb-2">
+                      {isLoading ? '...' : `${balance.toFixed(4)} SOL`}
+                    </div>
+                    <div className="text-sm text-muted-foreground">Available Balance</div>
+                    <Button 
+                      variant="outline" 
+                      size="sm" 
+                      onClick={fetchBalance} 
+                      disabled={isLoading}
+                      className="mt-2"
+                    >
+                      <TrendingUp className="w-4 h-4 mr-1" />
+                      Refresh
+                    </Button>
+                  </div>
+
+                  {/* Quick Actions */}
+                  <div className="col-span-2">
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                      {quickActions.map((action, index) => (
+                        <Link key={index} href={action.href}>
+                          <Card className="hover:shadow-lg transition-all duration-200 cursor-pointer">
+                            <CardContent className="p-4 text-center">
+                              <div className={`w-12 h-12 mx-auto mb-3 bg-gradient-to-r ${action.color} rounded-lg flex items-center justify-center`}>
+                                <action.icon className="w-6 h-6 text-white" />
+                              </div>
+                              <div className="font-medium text-sm mb-1">{action.title}</div>
+                              <div className="text-xs text-muted-foreground">{action.description}</div>
+                            </CardContent>
+                          </Card>
+                        </Link>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        </section>
+      )}
 
       {/* Stats Section */}
       <section className="py-16 px-4 sm:px-6 lg:px-8">
@@ -136,7 +242,7 @@ export default function HomePage() {
         </div>
       </section>
 
-      {/* CTA Section */}
+      {/* Enhanced CTA Section */}
       <section className="py-16 px-4 sm:px-6 lg:px-8">
         <div className="max-w-4xl mx-auto text-center">
           <Card className="solana-card border-0">
@@ -159,6 +265,15 @@ export default function HomePage() {
                     View Available Rewards
                   </Button>
                 </Link>
+                {connected && (
+                  <Link href="/profile">
+                    <Button variant="outline" size="lg">
+                      <Wallet className="w-5 h-5 mr-2" />
+                      View Wallet
+                      <ArrowRight className="w-4 h-4 ml-2" />
+                    </Button>
+                  </Link>
+                )}
               </div>
             </CardContent>
           </Card>
